@@ -1,5 +1,6 @@
 import torch
 
+import time
 import os
 import numpy as np
 from datetime import datetime
@@ -13,26 +14,27 @@ from models.model import base_Model
 # Args selections
 start_time = datetime.now()
 
+start = time.time()
 
 parser = argparse.ArgumentParser()
 
 ######################## Model parameters ########################
 home_dir = os.getcwd()
-parser.add_argument('--experiment_description', default='Exp1', type=str,
+parser.add_argument('--experiment_description', default='exp1', type=str,
                     help='Experiment Description')
 parser.add_argument('--run_description', default='run1', type=str,
                     help='Experiment Description')
 parser.add_argument('--seed', default=0, type=int,
                     help='seed value')
-parser.add_argument('--training_mode', default='supervised', type=str,
-                    help='Modes of choice: random_init, supervised, self_supervised, fine_tune, train_linear')
-parser.add_argument('--selected_dataset', default='Epilepsy', type=str,
-                    help='Dataset of choice: sleepEDF, HAR, Epilepsy, pFD')
-parser.add_argument('--logs_save_dir', default='experiments_logs', type=str,
+parser.add_argument('--training_mode', default='self_supervised', type=str,
+                    help='Modes of choice: random_init, supervised, self_supervised, self_supervised_residual, fine_tune, train_linear')
+parser.add_argument('--selected_dataset', default='arc', type=str,
+                    help='Dataset of choice: arc')
+parser.add_argument('--logs_save_dir', default='logs_arc', type=str,
                     help='saving directory')
 parser.add_argument('--device', default='cuda', type=str,
                     help='cpu or cuda')
-parser.add_argument('--home_path', default=home_dir, type=str,
+parser.add_argument('--home_path', default='./', type=str,
                     help='Project home directory')
 args = parser.parse_args()
 
@@ -78,8 +80,7 @@ logger.debug(f'Mode:    {training_mode}')
 logger.debug("=" * 45)
 
 # Load datasets
-data_path = f"./data/{data_type}"
-train_dl, valid_dl, test_dl = data_generator(data_path, configs, training_mode)
+train_dl, valid_dl, test_dl = data_generator(configs, training_mode, SEED)
 logger.debug("Data loaded ...")
 
 # Load Model
@@ -88,7 +89,10 @@ temporal_contr_model = TC(configs, device).to(device)
 
 if training_mode == "fine_tune":
     # load saved model of this experiment
-    load_from = os.path.join(os.path.join(logs_save_dir, experiment_description, run_description, f"self_supervised_seed_{SEED}", "saved_models"))
+    if "residual" in experiment_description:
+        load_from = os.path.join(os.path.join(logs_save_dir, experiment_description, run_description, f"self_supervised_residual_seed_{SEED}", "saved_models"))
+    else:
+        load_from = os.path.join(os.path.join(logs_save_dir, experiment_description, run_description, f"self_supervised_seed_{SEED}", "saved_models"))
     chkpoint = torch.load(os.path.join(load_from, "ckp_last.pt"), map_location=device)
     pretrained_dict = chkpoint["model_state_dict"]
     model_dict = model.state_dict()
@@ -102,7 +106,7 @@ if training_mode == "fine_tune":
     model.load_state_dict(model_dict)
 
 if training_mode == "train_linear" or "tl" in training_mode:
-    load_from = os.path.join(os.path.join(logs_save_dir, experiment_description, run_description, f"self_supervised_seed_{SEED}", "saved_models"))
+    load_from = os.path.join(os.path.join(logs_save_dir, experiment_description, run_description, f"fine_tune_seed_{SEED}", "saved_models"))
     chkpoint = torch.load(os.path.join(load_from, "ckp_last.pt"), map_location=device)
     pretrained_dict = chkpoint["model_state_dict"]
     model_dict = model.state_dict()
@@ -139,16 +143,20 @@ if training_mode == "random_init":
 model_optimizer = torch.optim.Adam(model.parameters(), lr=configs.lr, betas=(configs.beta1, configs.beta2), weight_decay=3e-4)
 temporal_contr_optimizer = torch.optim.Adam(temporal_contr_model.parameters(), lr=configs.lr, betas=(configs.beta1, configs.beta2), weight_decay=3e-4)
 
-if training_mode == "self_supervised":  # to do it only once
+if training_mode == "self_supervised" or training_mode == "self_supervised_residual":  # to do it only once
     copy_Files(os.path.join(logs_save_dir, experiment_description, run_description), data_type)
 
 # Trainer
 Trainer(model, temporal_contr_model, model_optimizer, temporal_contr_optimizer, train_dl, valid_dl, test_dl, device, logger, configs, experiment_log_dir, training_mode)
 
-if training_mode != "self_supervised":
+if training_mode != "self_supervised" and training_mode != "self_supervised_residual":
     # Testing
     outs = model_evaluate(model, temporal_contr_model, test_dl, device, training_mode)
     total_loss, total_acc, pred_labels, true_labels = outs
     _calc_metrics(pred_labels, true_labels, experiment_log_dir, args.home_path)
 
 logger.debug(f"Training time is : {datetime.now()-start_time}")
+
+
+end = time.time()
+print(str(end-start))

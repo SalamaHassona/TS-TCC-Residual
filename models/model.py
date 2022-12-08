@@ -27,7 +27,8 @@ class base_Model(nn.Module):
             nn.MaxPool1d(kernel_size=2, stride=2, padding=1),
         )
 
-        model_output_dim = configs.features_len
+        # model_output_dim = configs.features_len
+        model_output_dim = configs.model_output_dim
         self.logits = nn.Linear(model_output_dim * configs.final_out_channels, configs.num_classes)
 
     def forward(self, x_in):
